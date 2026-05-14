@@ -27,4 +27,5 @@ You are a **highly professional developer and tester**.
 
 ## Git Workflow
 - Make a **commit and push after each change** — I need to push the code to the server.
+- **Always push to the `master` branch.**
 - Write clear, descriptive commit messages in English.
