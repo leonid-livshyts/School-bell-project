@@ -8,27 +8,27 @@ try:
 except ImportError:
     THREADING_AVAILABLE = False
 
-try:
-    from urllib.parse import quote
-except ImportError:
-    # MicroPython fallback
-    def quote(s, safe=''):
-        """Simple URL encoding for MicroPython.
-        Supports str and bytes; avoids using isalnum which may be missing.
-        """
-        if isinstance(s, bytes):
-            try:
-                s = s.decode('utf-8')
-            except Exception:
-                s = s.decode('latin1')
-        result = []
-        for char in s:
-            # Manual alphanumeric check
-            if ('a' <= char <= 'z') or ('A' <= char <= 'Z') or ('0' <= char <= '9') or (char in safe):
-                result.append(char)
-            else:
-                result.append('%{:02X}'.format(ord(char)))
-        return ''.join(result)
+# Always use this manual quote() implementation.
+# We do NOT import urllib.parse.quote: on some MicroPython builds that module
+# IS importable, but its quote() calls str.isalnum(), which MicroPython's str
+# does not implement -> AttributeError. This version avoids isalnum entirely.
+def quote(s, safe=''):
+    """Simple URL encoding for MicroPython.
+    Supports str and bytes; avoids using isalnum which may be missing.
+    """
+    if isinstance(s, bytes):
+        try:
+            s = s.decode('utf-8')
+        except Exception:
+            s = s.decode('latin1')
+    result = []
+    for char in s:
+        # Manual alphanumeric check
+        if ('a' <= char <= 'z') or ('A' <= char <= 'Z') or ('0' <= char <= '9') or (char in safe):
+            result.append(char)
+        else:
+            result.append('%{:02X}'.format(ord(char)))
+    return ''.join(result)
 
 
 class PlayerException(Exception):
