@@ -1,0 +1,31 @@
+{
+    "wifi_ap": {
+        "name": "BROBOTS",
+        "password": "HelloBrobo"
+    },
+    "server": {
+        "url": "10.0.60.208:8000/private",
+        "socket": "10.0.60.208:8088"
+    },
+    "refresh_rates": {
+        "sensor": 10000,
+        "send_log": 120000,
+        "schedule": 6000,
+        "alarm": 5000,
+        "voice_message": 5000
+    },
+    "timing": {
+        "rtc_sync_interval": 3600000,
+        "schedule_tolerance": 20
+    },
+    "durations": {
+        "alarm_min": 60,
+        "alarm_max": 120,
+        "ring_min": 20,
+        "ring_max": 30,
+        "vm_min": 60,
+        "vm_max": 90
+    },
+    "log_folder": "logs",
+    "secret_key": "1234567890abcdefg"   
+}
