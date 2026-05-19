@@ -71,7 +71,6 @@ class RollingBufferWrapper:
             except Exception as e:
                 if logger:
                     logger(f"ERROR: Failed to start fetch thread: {e}")
-                THREADING_AVAILABLE = False
     
     def _fetch_loop(self):
         """Background thread that continuously fetches data from socket."""
