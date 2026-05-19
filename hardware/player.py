@@ -86,10 +86,17 @@ class RollingBufferWrapper:
                     self.chunk_offsets[self.fill_idx] = 0
                     # Move to next chunk slot
                     self.fill_idx = (self.fill_idx + 1) % self.num_chunks
-                except socket.timeout:
+                except OSError as e:
+                    # MicroPython has no socket.timeout class; recv() timeouts
+                    # surface as OSError with errno 11 (EAGAIN) or 110 (ETIMEDOUT)
+                    errno = e.args[0] if e.args else None
+                    if errno in (11, 110):
+                        if self.logger:
+                            self.logger("DEBUG: Socket timeout in fetch thread - retrying...")
+                        continue
                     if self.logger:
-                        self.logger("DEBUG: Socket timeout in fetch thread - retrying...")
-                    continue
+                        self.logger(f"ERROR in fetch thread: {e}")
+                    self.eof = True
                 except Exception as e:
                     if self.logger:
                         self.logger(f"ERROR in fetch thread: {e}")
