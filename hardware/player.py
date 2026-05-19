@@ -387,9 +387,7 @@ class PlayerSession:
             # Peek at first bytes to verify we got valid WAV data
             # Use a loop with a timeout since the background thread might be slow to start
             first_bytes = b""
-            start_wait = current_timestamp # current_timestamp is already available in mainish
             # Wait up to 5 seconds for the header
-            import time
             wait_limit = time.time() + 5
             while len(first_bytes) < 4 and time.time() < wait_limit:
                 chunk = self.stream.read(4 - len(first_bytes))
