@@ -2,11 +2,6 @@ from wavplayer import WavPlayer
 import socket
 import time
 from time import sleep
-try:
-    import _thread
-    THREADING_AVAILABLE = True
-except ImportError:
-    THREADING_AVAILABLE = False
 
 # Always use this manual quote() implementation.
 # We do NOT import urllib.parse.quote: on some MicroPython builds that module
@@ -33,182 +28,6 @@ def quote(s, safe=''):
 
 class PlayerException(Exception):
     pass
-
-
-class RollingBufferWrapper:
-    """Rolling buffer for socket streaming with background fetching.
-    
-    Maintains a rolling window of 3 chunks:
-    - Chunk being read (audio callback)
-    - Chunk waiting to be read
-    - Chunk being filled from socket
-    
-    This decouples socket I/O from audio playback timing.
-    """
-    def __init__(self, sock, chunk_size=4096, num_chunks=3, logger=None):
-        self.sock = sock
-        self.chunk_size = chunk_size
-        self.num_chunks = num_chunks
-        self.logger = logger
-        self.closed = False
-        self.position = 0
-        self.bytes_received = 0
-        self.eof = False
-        
-        # Circular buffer: list of chunks
-        self.chunks = [b"" for _ in range(num_chunks)]
-        self.current_chunk_idx = 0  # Which chunk we're currently reading from
-        self.fill_idx = 0  # Which chunk we're currently filling from socket
-        self.chunk_offsets = [0] * num_chunks  # Position within each chunk
-        self.fetch_thread = None
-        self.fetch_done = False
-        self.peek_buf = b""  # Buffer for peeked data (e.g., RIFF header check)
-        
-        if THREADING_AVAILABLE:
-            # Start background fetch thread
-            try:
-                self.fetch_thread = _thread.start_new_thread(self._fetch_loop, ())
-            except Exception as e:
-                if logger:
-                    logger(f"ERROR: Failed to start fetch thread: {e}")
-    
-    def _fetch_loop(self):
-        """Background thread that continuously fetches data from socket."""
-        try:
-            while not self.closed and not self.eof:
-                try:
-                    chunk = self.sock.recv(self.chunk_size)
-                    if not chunk:
-                        self.eof = True
-                        break
-                    self.bytes_received += len(chunk)
-                    self.chunks[self.fill_idx] = chunk
-                    self.chunk_offsets[self.fill_idx] = 0
-                    # Move to next chunk slot
-                    self.fill_idx = (self.fill_idx + 1) % self.num_chunks
-                except OSError as e:
-                    # MicroPython has no socket.timeout class; recv() timeouts
-                    # surface as OSError with errno 11 (EAGAIN) or 110 (ETIMEDOUT)
-                    errno = e.args[0] if e.args else None
-                    if errno in (11, 110):
-                        if self.logger:
-                            self.logger("DEBUG: Socket timeout in fetch thread - retrying...")
-                        continue
-                    if self.logger:
-                        self.logger(f"ERROR in fetch thread: {e}")
-                    self.eof = True
-                except Exception as e:
-                    if self.logger:
-                        self.logger(f"ERROR in fetch thread: {e}")
-                    self.eof = True
-        finally:
-            self.fetch_done = True
-    
-    def read(self, n):
-        """Read exactly n bytes from rolling buffer."""
-        if self.closed:
-            raise OSError("Buffer is closed")
-        
-        result = b""
-        bytes_needed = n
-        
-        # First, consume any peeked data
-        if len(self.peek_buf) > 0:
-            to_take = min(len(self.peek_buf), bytes_needed)
-            result += self.peek_buf[:to_take]
-            self.peek_buf = self.peek_buf[to_take:]
-            bytes_needed -= to_take
-            self.position += to_take
-            self.bytes_received += to_take
-            if bytes_needed == 0:
-                return result
-        
-        while bytes_needed > 0 and not self.eof:
-            # Get current chunk
-            chunk = self.chunks[self.current_chunk_idx]
-            offset = self.chunk_offsets[self.current_chunk_idx]
-            
-            if offset >= len(chunk):
-                # Current chunk exhausted, move to next
-                if self.fetch_done and self.current_chunk_idx == self.fill_idx:
-                    # No more chunks available
-                    break
-                
-                # If we've caught up to the fill thread but it's not done,
-                # we need to wait a bit for more data.
-                next_idx = (self.current_chunk_idx + 1) % self.num_chunks
-                if next_idx == self.fill_idx and not self.fetch_done:
-                    # No new data yet, wait a tiny bit to avoid busy-wait
-                    sleep(0.01)
-                    continue
-                    
-                self.current_chunk_idx = next_idx
-                self.chunks[self.current_chunk_idx] = b""
-                self.chunk_offsets[self.current_chunk_idx] = 0
-                continue
-            
-            # Read from current chunk
-            available = len(chunk) - offset
-            to_read = min(available, bytes_needed)
-            result += chunk[offset:offset + to_read]
-            self.chunk_offsets[self.current_chunk_idx] += to_read
-            self.position += to_read
-            self.bytes_received += to_read
-            bytes_needed -= to_read
-        
-        if not result and self.bytes_received == 0 and self.logger:
-            self.logger("ERROR: Server sent no data - file may not exist on server")
-        
-        return result
-    
-    @property
-    def buf(self):
-        """Compatibility property for peeked data buffer."""
-        return self.peek_buf
-    
-    @buf.setter
-    def buf(self, value):
-        """Compatibility setter for prepending peeked data."""
-        self.peek_buf = value
-    
-    def readinto(self, b):
-        """Read bytes directly into the provided buffer."""
-        data = self.read(len(b))
-        if not data:
-            return 0
-        b[:len(data)] = data
-        return len(data)
-    
-    def seek(self, pos, whence=0):
-        """Forward-only seek support."""
-        if whence != 0:
-            raise OSError("seek only supports absolute positions")
-        if pos < self.position:
-            raise OSError("cannot seek backwards")
-        if pos == self.position:
-            return self.position
-        to_skip = pos - self.position
-        while to_skip > 0:
-            chunk = self.read(min(to_skip, 4096))
-            if not chunk:
-                raise OSError("cannot seek past end")
-            to_skip -= len(chunk)
-        return self.position
-    
-    def close(self):
-        """Close the buffer and socket."""
-        if not self.closed:
-            self.closed = True
-            try:
-                self.sock.close()
-            except:
-                pass
-    
-    def __enter__(self):
-        return self
-    
-    def __exit__(self, *args):
-        self.close()
 
 
 class SocketStreamWrapper:
@@ -253,7 +72,13 @@ class SocketStreamWrapper:
                 self.buf += chunk
                 if self.logger and self.bytes_received % 65536 == 0:
                     self.logger(f"DEBUG: Socket read progress: {self.bytes_received} bytes")
-            except socket.timeout:
+            except OSError as e:
+                # MicroPython has no socket.timeout class; recv() timeouts surface
+                # as OSError with errno 11 (EAGAIN) or 110 (ETIMEDOUT). Anything
+                # else is a real socket failure and should propagate.
+                errno = e.args[0] if e.args else None
+                if errno not in (11, 110):
+                    raise
                 # On timeout, return what we have buffered
                 # This is important during I2S playback to avoid blocking the callback
                 if len(self.buf) > 0:
@@ -383,32 +208,24 @@ class PlayerSession:
                 self.logger(f"DEBUG: Requesting sound: '{encoded_sound_name}' ({len(sound_bytes)} bytes)")
             
             sock.sendall(len(sound_bytes).to_bytes(1, "big") + sound_bytes)
-            
-            # Use RollingBufferWrapper which fetches data in a background thread
-            # This prevents network jitter from blocking or timing out the I2S callback
-            self.stream = RollingBufferWrapper(sock, chunk_size=4096, num_chunks=4, logger=self.logger)
-            if self.logger:
-                self.logger("DEBUG: Using rolling buffer wrapper for background streaming")
-            
-            # Peek at first bytes to verify we got valid WAV data
-            # Use a loop with a timeout since the background thread might be slow to start
-            first_bytes = b""
-            # Wait up to 5 seconds for the header
-            wait_limit = time.time() + 5
-            while len(first_bytes) < 4 and time.time() < wait_limit:
-                chunk = self.stream.read(4 - len(first_bytes))
-                if chunk:
-                    first_bytes += chunk
-                else:
-                    time.sleep(0.1)
-            
+
+            # Synchronous buffered socket wrapper — simpler than a background
+            # fetch thread, and avoids ring-buffer race conditions / zombie
+            # threads that exhaust ESP32 heap on repeated failures.
+            self.stream = SocketStreamWrapper(sock, logger=self.logger)
+
+            # Peek at first bytes to verify we got valid WAV data.
+            first_bytes = self.stream.read(4)
+
             if first_bytes == b"":
                 raise PlayerException(f"No data from server for '{sound}' - check if server is running and file exists")
             if first_bytes != b"RIFF":
                 raise PlayerException(f"Invalid WAV file from server for '{sound}' - expected RIFF, got {first_bytes!r}")
-            
-            # Put the peeked bytes back into the buffer
-            self.stream.buf = first_bytes
+
+            # Prepend the peeked bytes so the WAV player sees the full header.
+            # Plain concat (not assignment) is required: read(4) already consumed
+            # bytes from self.buf, and any leftover from that recv() must be kept.
+            self.stream.buf = first_bytes + self.stream.buf
             
             # Pass wrapped socket to WAV player
             self.player.play(wav_opened_file=self.stream, loop=False)
