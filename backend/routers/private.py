@@ -1,15 +1,19 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from fastapi import HTTPException, status, APIRouter, Security
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.future import select
-from aiohttp import ClientSession
 from routers.db_tools import db_dependency
 from config import settings_dependency
 from routers.security_tools import api_key_header, room_id_dependency
 from models import Lesson, Measure, Ringtone, VoiceMessage
+
+
+# The school's local timezone. Lesson times are stored as naive UTC in the DB;
+# this is used to work out what "today" means for the device's schedule.
+LOCAL_TZ = ZoneInfo("Europe/Kyiv")
 
 
 class TimeResponse(BaseModel):
@@ -40,10 +44,6 @@ class RingtoneResponse(BaseModel):
     code: str
 
 
-class VoiceMessagesResponse(BaseModel):
-    codes: list[str]
-
-
 private_router = APIRouter(
     prefix="/private",
     tags=["private"],
@@ -62,8 +62,13 @@ async def get_current_time():
 @private_router.get("/schedule", response_model=list[LessonResponse],
                     status_code=status.HTTP_200_OK)
 async def get_schedule(db: db_dependency, room_id: room_id_dependency):
-    day_start = datetime.now().replace(hour=0, minute=0, second=1, microsecond=0)
-    day_end = datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999)
+    # "Today" means today in the school's local timezone. Lesson times are
+    # stored as naive UTC, so convert the local day boundaries to naive UTC too.
+    now_local = datetime.now(LOCAL_TZ)
+    day_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0) \
+        .astimezone(timezone.utc).replace(tzinfo=None)
+    day_end = now_local.replace(hour=23, minute=59, second=59, microsecond=999999) \
+        .astimezone(timezone.utc).replace(tzinfo=None)
 
     query = select(Lesson).where(
         (Lesson.room_id == room_id) &
@@ -90,10 +95,11 @@ async def get_schedule(db: db_dependency, room_id: room_id_dependency):
 
     lessons = []
     for lesson in matched:
+        # start/end are naive UTC in the DB; attach UTC to get the true unix time.
         lessons.append(LessonResponse(
             name=lesson.name,
-            start=int(lesson.start.timestamp()),
-            end=int(lesson.end.timestamp())
+            start=int(lesson.start.replace(tzinfo=timezone.utc).timestamp()),
+            end=int(lesson.end.replace(tzinfo=timezone.utc).timestamp())
         ))
     return lessons
 
@@ -101,17 +107,12 @@ async def get_schedule(db: db_dependency, room_id: room_id_dependency):
 @private_router.get("/alarm", response_model=AlarmResponse,
                     status_code=status.HTTP_200_OK)
 async def get_alarm(current_alarm: bool):
+    # No alarm trigger source is wired up yet, so the alarm is always reported
+    # as inactive. The previous code after the return was unreachable and
+    # pointed at a non-existent host ("http://localhosts").
     return AlarmResponse(
         is_alarm=False,
         ring=False
-    )
-
-    async with ClientSession() as sess:
-        async with sess.get("http://localhosts") as resp:
-            resp_json = await resp.json()
-    return AlarmResponse(
-        is_alarm=resp_json["is_alarm"],
-        ring=current_alarm != resp_json["is_alarm"]
     )
 
 
@@ -159,16 +160,15 @@ async def get_ringtone_code(db: db_dependency, room_id: room_id_dependency):
     return RingtoneResponse(code=ringtone_code)
 
 
-@private_router.get("/voice_messages", status_code=status.HTTP_200_OK)
+@private_router.get("/voice_messages", response_model=list[str],
+                    status_code=status.HTTP_200_OK)
 async def get_voice_messages(db: db_dependency, room_id: room_id_dependency):
     query = select(VoiceMessage).where(VoiceMessage.room_id == room_id).order_by(VoiceMessage.created_at)
     result = await db.execute(query)
-    voice_messages = result.scalars()
-    if not voice_messages:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice message not found")
-
-    vm_codes = ["V" + vm.filename for vm in voice_messages]
-    return VoiceMessagesResponse(codes=vm_codes)
+    voice_messages = result.scalars().all()
+    # Return a bare JSON list (the device expects a list, same as /schedule).
+    # No voice messages -> empty list, not a 404.
+    return ["V" + vm.filename for vm in voice_messages]
 
 
 @private_router.post("/logs", status_code=status.HTTP_200_OK)

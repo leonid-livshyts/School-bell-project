@@ -1,10 +1,15 @@
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 from fastapi import HTTPException, status, APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from models import Lesson
 from routers.db_tools import db_dependency
+
+
+# The school's local timezone, used to interpret lesson times sent without one.
+LOCAL_TZ = ZoneInfo("Europe/Kyiv")
 
 
 class LessonObj(BaseModel):
@@ -12,6 +17,20 @@ class LessonObj(BaseModel):
     start: datetime
     end: datetime
     room_id: int
+
+    @field_validator("start", "end")
+    @classmethod
+    def normalize_to_naive_utc(cls, value: datetime) -> datetime:
+        """Store every lesson time as naive UTC.
+
+        A datetime sent without a timezone is assumed to be Europe/Kyiv local
+        time. A datetime sent with a timezone is converted from its offset. The
+        tzinfo is then dropped so the database always holds plain UTC values
+        that compare and sort correctly.
+        """
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=LOCAL_TZ)
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 lessons_router = APIRouter(
