@@ -44,6 +44,15 @@ class Room(CreatedUpdatedModel, Base):
     measures: Mapped[list["Measure"]] = relationship()
 
 
+class Alarm(CreatedUpdatedModel, Base):
+    __tablename__ = "alarms"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    is_active: Mapped[bool] = mapped_column(default=False)
+    # One alarm row per room.
+    room_id: Mapped[int] = mapped_column(ForeignKey("rooms.id"), unique=True)
+
+
 class Measure(Base):
     __tablename__ = "measures"
 

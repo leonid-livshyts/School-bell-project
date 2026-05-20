@@ -8,7 +8,7 @@ from sqlalchemy.future import select
 from routers.db_tools import db_dependency
 from config import settings_dependency
 from routers.security_tools import api_key_header, room_id_dependency
-from models import Lesson, Measure, Ringtone, VoiceMessage
+from models import Alarm, Lesson, Measure, Ringtone, VoiceMessage
 
 
 # The school's local timezone. Lesson times are stored as naive UTC in the DB;
@@ -106,13 +106,17 @@ async def get_schedule(db: db_dependency, room_id: room_id_dependency):
 
 @private_router.get("/alarm", response_model=AlarmResponse,
                     status_code=status.HTTP_200_OK)
-async def get_alarm(current_alarm: bool):
-    # No alarm trigger source is wired up yet, so the alarm is always reported
-    # as inactive. The previous code after the return was unreachable and
-    # pointed at a non-existent host ("http://localhosts").
+async def get_alarm(db: db_dependency, room_id: room_id_dependency,
+                    current_alarm: bool):
+    # Report the alarm state for this device's room. `ring` is True when the
+    # state just changed, so the device plays the start/finish sound once.
+    alarm = (await db.execute(
+        select(Alarm).where(Alarm.room_id == room_id)
+    )).scalar_one_or_none()
+    is_alarm = bool(alarm.is_active) if alarm is not None else False
     return AlarmResponse(
-        is_alarm=False,
-        ring=False
+        is_alarm=is_alarm,
+        ring=current_alarm != is_alarm
     )
 
 

@@ -3,7 +3,7 @@ from fastapi import FastAPI
 import uvicorn
 from database import engine
 from models import Base
-from routers import lessons, rooms, measures, devices, voice_messages, ringtones, private, authentication
+from routers import lessons, rooms, measures, devices, voice_messages, ringtones, private, authentication, alarms
 from config import get_settings
 
 
@@ -32,6 +32,7 @@ app.include_router(devices.devices_router)
 app.include_router(voice_messages.voice_messages_router)
 app.include_router(ringtones.ringtones_router)
 app.include_router(private.private_router)
+app.include_router(alarms.alarms_router)
 
 
 if __name__ == "__main__":
