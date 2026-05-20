@@ -30,6 +30,18 @@ class PlayerException(Exception):
     pass
 
 
+# Socket timeouts (in seconds) for talking to the WAV streaming server.
+CONNECT_TIMEOUT = 10  # TCP connect step
+HEADER_TIMEOUT = 15   # waiting for the server to find the file and send the WAV header
+STREAM_TIMEOUT = 8    # ongoing audio streaming after the header arrived
+
+# recv() timeouts surface as OSError. The errno depends on the MicroPython port:
+#   11  = EAGAIN
+#   110 = ETIMEDOUT on CPython / Linux builds
+#   116 = ETIMEDOUT on the ESP32 (lwIP) build  <-- our hardware
+TIMEOUT_ERRNOS = (11, 110, 116)
+
+
 class SocketStreamWrapper:
     """Wrapper to make a socket behave like a file object for WAV streaming.
     
@@ -74,11 +86,15 @@ class SocketStreamWrapper:
                     self.logger(f"DEBUG: Socket read progress: {self.bytes_received} bytes")
             except OSError as e:
                 # MicroPython has no socket.timeout class; recv() timeouts surface
-                # as OSError with errno 11 (EAGAIN) or 110 (ETIMEDOUT). Anything
-                # else is a real socket failure and should propagate.
+                # as OSError. See TIMEOUT_ERRNOS above. Anything else is a real
+                # socket failure and should propagate.
                 errno = e.args[0] if e.args else None
-                if errno not in (11, 110):
+                if errno not in TIMEOUT_ERRNOS:
+                    if self.logger:
+                        self.logger(f"ERROR: Fatal socket error (errno {errno}): {e}")
                     raise
+                if self.logger:
+                    self.logger(f"DEBUG: recv() timed out (errno {errno}), buffered={len(self.buf)}, total received={self.bytes_received}")
                 # On timeout, return what we have buffered
                 # This is important during I2S playback to avoid blocking the callback
                 if len(self.buf) > 0:
@@ -168,10 +184,14 @@ class PlayerSession:
         sock = None
         self.stream = None
         try:
+            if self.logger:
+                self.logger(f"DEBUG: Connecting to streamer {self.socket_host}:{self.socket_port}")
             sock = socket.socket()
-            # Set a short timeout for the connect and initial handshake only.
-            sock.settimeout(10)
+            # Timeout for the TCP connect step.
+            sock.settimeout(CONNECT_TIMEOUT)
             sock.connect((self.socket_host, self.socket_port))
+            if self.logger:
+                self.logger("DEBUG: Connected to streamer")
             
             # Disable Nagle's algorithm to reduce TCP buffering delays if supported
             if hasattr(socket, "IPPROTO_TCP") and hasattr(socket, "TCP_NODELAY"):
@@ -189,8 +209,10 @@ class PlayerSession:
                         self.logger(f"DEBUG: Could not set SO_RCVBUF: {e}")
 
             
-            # Set a more reasonable timeout for the initial data fetch (RIFF header)
-            sock.settimeout(2.0)
+            # The streamer server needs time to locate the file on disk and
+            # start sending. 2s was far too short and made ringtones fail with
+            # ETIMEDOUT, so give the header read a generous timeout.
+            sock.settimeout(HEADER_TIMEOUT)
             
             # Remove .wav extension if present (streamer server adds it)
             sound_name = sound
@@ -222,6 +244,13 @@ class PlayerSession:
             if first_bytes != b"RIFF":
                 raise PlayerException(f"Invalid WAV file from server for '{sound}' - expected RIFF, got {first_bytes!r}")
 
+            if self.logger:
+                self.logger(f"DEBUG: Got valid WAV header for '{sound}', streaming audio...")
+
+            # Header arrived; use a shorter timeout for the streaming phase so a
+            # stalled connection does not block the I2S callback indefinitely.
+            sock.settimeout(STREAM_TIMEOUT)
+
             # Prepend the peeked bytes so the WAV player sees the full header.
             # Plain concat (not assignment) is required: read(4) already consumed
             # bytes from self.buf, and any leftover from that recv() must be kept.
@@ -250,7 +279,10 @@ class PlayerSession:
                     sock.close()
                 except Exception:
                     pass
-            raise PlayerException(f"Socket error while playing '{sound}': {e}")
+            errno = e.args[0] if e.args else None
+            if self.logger:
+                self.logger(f"ERROR: Socket error (errno {errno}) while playing '{sound}': {e}")
+            raise PlayerException(f"Socket error while playing '{sound}' (errno {errno}): {e}")
         except ValueError as e:
             if self.stream is not None:
                 self.stream.close()
