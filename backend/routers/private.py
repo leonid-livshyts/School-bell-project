@@ -77,19 +77,14 @@ async def get_schedule(db: db_dependency, room_id: room_id_dependency):
     result = await db.execute(query)
     matched = result.scalars().all()
 
-    # Diagnostic logging: when the device gets an empty schedule, log enough to
-    # tell whether the cause is a room_id mismatch or a date/timezone mismatch.
+    # Diagnostic logging: one concise line per poll.
     if not matched:
-        all_in_room = (await db.execute(
+        other_dates = (await db.execute(
             select(Lesson).where(Lesson.room_id == room_id)
         )).scalars().all()
-        all_lessons = (await db.execute(select(Lesson))).scalars().all()
-        print(f"[SCHEDULE] EMPTY for room_id={room_id}, window={day_start} .. {day_end}")
-        print(f"[SCHEDULE]   lessons in this room (any date): {len(all_in_room)}")
-        print(f"[SCHEDULE]   lessons in the whole DB: {len(all_lessons)}")
-        for lesson in all_lessons[:10]:
-            print(f"[SCHEDULE]   lesson id={lesson.id} room_id={lesson.room_id} "
-                  f"start={lesson.start} end={lesson.end}")
+        print(f"[SCHEDULE] room_id={room_id}: 0 lessons today "
+              f"(UTC window {day_start} .. {day_end}); "
+              f"{len(other_dates)} lesson(s) exist in this room on other dates")
     else:
         print(f"[SCHEDULE] room_id={room_id}: returning {len(matched)} lesson(s)")
 

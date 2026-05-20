@@ -58,6 +58,10 @@ async def read_lesson_by_id(db: db_dependency, lesson_id: int):
 
 @lessons_router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_lesson(db: db_dependency, lesson_obj: LessonObj):
+    # Times are already normalized to naive UTC by LessonObj's validator.
+    print(f"[LESSON] create request: room_id={lesson_obj.room_id} "
+          f"start={lesson_obj.start} end={lesson_obj.end} name={lesson_obj.name!r}")
+
     query = select(Lesson).where((Lesson.start.between(lesson_obj.start, lesson_obj.end) |
                                  Lesson.end.between(lesson_obj.start, lesson_obj.end) |
                                  ((Lesson.start > lesson_obj.start) & (Lesson.end < lesson_obj.end))) &
@@ -65,17 +69,28 @@ async def create_lesson(db: db_dependency, lesson_obj: LessonObj):
     result = await db.execute(query)
     lesson = result.scalar_one_or_none()
     if lesson is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Ths lesson is overlapping with another lesson {lesson.room_id}")
+        print(f"[LESSON] rejected: overlaps existing lesson id={lesson.id} "
+              f"({lesson.start} .. {lesson.end})")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"This lesson overlaps lesson id={lesson.id} "
+                   f"({lesson.start} .. {lesson.end} UTC) in room {lesson.room_id}"
+        )
 
     new_lesson = Lesson(**lesson_obj.model_dump())
     db.add(new_lesson)
     try:
         await db.commit()
     except IntegrityError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No such room")
-    # Log every created lesson so it can be compared against what /private/schedule queries.
-    print(f"[LESSON] created: room_id={new_lesson.room_id} "
-          f"start={new_lesson.start} end={new_lesson.end} name={new_lesson.name!r}")
+        print(f"[LESSON] rejected: no room with id={lesson_obj.room_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No room with id={lesson_obj.room_id}"
+        )
+    # Log the values from lesson_obj (plain Python). Reading new_lesson after
+    # commit would trigger a lazy DB load and crash with MissingGreenlet.
+    print(f"[LESSON] created: room_id={lesson_obj.room_id} "
+          f"start={lesson_obj.start} end={lesson_obj.end} name={lesson_obj.name!r}")
 
 
 @lessons_router.post("/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
