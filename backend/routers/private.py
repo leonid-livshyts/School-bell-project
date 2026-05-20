@@ -62,16 +62,34 @@ async def get_current_time():
 @private_router.get("/schedule", response_model=list[LessonResponse],
                     status_code=status.HTTP_200_OK)
 async def get_schedule(db: db_dependency, room_id: room_id_dependency):
+    day_start = datetime.now().replace(hour=0, minute=0, second=1, microsecond=0)
+    day_end = datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999)
+
     query = select(Lesson).where(
         (Lesson.room_id == room_id) &
-        Lesson.start.between(
-            datetime.now().replace(hour=0, minute=0, second=1),
-            datetime.now().replace(hour=23, minute=59, second=59)
-        )
+        Lesson.start.between(day_start, day_end)
     ).order_by(Lesson.start)
     result = await db.execute(query)
+    matched = result.scalars().all()
+
+    # Diagnostic logging: when the device gets an empty schedule, log enough to
+    # tell whether the cause is a room_id mismatch or a date/timezone mismatch.
+    if not matched:
+        all_in_room = (await db.execute(
+            select(Lesson).where(Lesson.room_id == room_id)
+        )).scalars().all()
+        all_lessons = (await db.execute(select(Lesson))).scalars().all()
+        print(f"[SCHEDULE] EMPTY for room_id={room_id}, window={day_start} .. {day_end}")
+        print(f"[SCHEDULE]   lessons in this room (any date): {len(all_in_room)}")
+        print(f"[SCHEDULE]   lessons in the whole DB: {len(all_lessons)}")
+        for lesson in all_lessons[:10]:
+            print(f"[SCHEDULE]   lesson id={lesson.id} room_id={lesson.room_id} "
+                  f"start={lesson.start} end={lesson.end}")
+    else:
+        print(f"[SCHEDULE] room_id={room_id}: returning {len(matched)} lesson(s)")
+
     lessons = []
-    for lesson in result.scalars().all():
+    for lesson in matched:
         lessons.append(LessonResponse(
             name=lesson.name,
             start=int(lesson.start.timestamp()),

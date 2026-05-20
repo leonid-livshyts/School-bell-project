@@ -54,12 +54,15 @@ async def create_lesson(db: db_dependency, lesson_obj: LessonObj):
         await db.commit()
     except IntegrityError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No such room")
+    # Log every created lesson so it can be compared against what /private/schedule queries.
+    print(f"[LESSON] created: room_id={new_lesson.room_id} "
+          f"start={new_lesson.start} end={new_lesson.end} name={new_lesson.name!r}")
 
 
 @lessons_router.post("/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def update_lesson_by_id(db: db_dependency, lesson_obj: LessonObj, lesson_id: int):
-    query = select(Lesson).where((Lesson.start.betweet(lesson_obj.start, lesson_obj.end) |
-                                 Lesson.end.betweet(lesson_obj.start, lesson_obj.end) |
+    query = select(Lesson).where((Lesson.start.between(lesson_obj.start, lesson_obj.end) |
+                                 Lesson.end.between(lesson_obj.start, lesson_obj.end) |
                                  ((Lesson.start > lesson_obj.start) & (Lesson.end < lesson_obj.end))) &
                                  (Lesson.room_id == lesson_obj.room_id))
     result = await db.execute(query)
