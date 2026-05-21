@@ -23,14 +23,14 @@ class LessonObj(BaseModel):
     def normalize_to_naive_utc(cls, value: datetime) -> datetime:
         """Store every lesson time as naive UTC.
 
-        A datetime sent without a timezone is assumed to be Europe/Kyiv local
-        time. A datetime sent with a timezone is converted from its offset. The
-        tzinfo is then dropped so the database always holds plain UTC values
-        that compare and sort correctly.
+        Lessons are always scheduled in the school's local time. Any timezone
+        the client attaches is ignored -- Swagger, for example, appends "Z" to
+        the wall-clock time the user typed. So the wall-clock part is taken as
+        Europe/Kyiv local time and converted to naive UTC for storage.
         """
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=LOCAL_TZ)
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
+        wall_clock = value.replace(tzinfo=None)
+        local = wall_clock.replace(tzinfo=LOCAL_TZ)
+        return local.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 lessons_router = APIRouter(
