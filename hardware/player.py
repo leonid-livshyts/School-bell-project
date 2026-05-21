@@ -1,6 +1,7 @@
 from wavplayer import WavPlayer
 import socket
 import time
+import gc
 from time import sleep
 
 # Always use this manual quote() implementation.
@@ -183,6 +184,11 @@ class PlayerSession:
         """
         sock = None
         self.stream = None
+        # Free heap before allocating socket buffers and the I2S DMA buffer.
+        # A low/fragmented heap makes the I2S init fail with ENOMEM.
+        gc.collect()
+        if self.logger:
+            self.logger(f"DEBUG: Free heap before playback: {gc.mem_free()} bytes")
         try:
             if self.logger:
                 self.logger(f"DEBUG: Connecting to streamer {self.socket_host}:{self.socket_port}")
@@ -256,6 +262,12 @@ class PlayerSession:
             # bytes from self.buf, and any leftover from that recv() must be kept.
             self.stream.buf = first_bytes + self.stream.buf
             
+            # Reclaim the transient buffers used to read the header so the I2S
+            # DMA allocation inside the WAV player has the most heap available.
+            gc.collect()
+            if self.logger:
+                self.logger(f"DEBUG: Free heap before I2S init: {gc.mem_free()} bytes")
+
             # Pass wrapped socket to WAV player
             self.player.play(wav_opened_file=self.stream, loop=False)
             
