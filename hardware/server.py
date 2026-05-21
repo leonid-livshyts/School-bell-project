@@ -13,7 +13,7 @@ class ServerSession:
         headers = self.headers.copy()
             
         if request_type == "GET":
-            
+            # The caller reads .text, which drains and closes the socket.
             return requests.get(url=self.url + path, headers=headers)
         
         if request_type == "POST":
@@ -22,7 +22,10 @@ class ServerSession:
                     headers["Content-Type"] = "application/json"
                     data = json.dumps(data)   # <-- Серіалізуємо data в JSON рядок
 
-                return requests.post(url=self.url + path, headers=headers, data=data)
+                response = requests.post(url=self.url + path, headers=headers, data=data)
+                # The caller does not read POST responses; close it so the
+                # socket is released immediately instead of leaking until GC.
+                response.close()
             except Exception as e:
                 print(e)
 

@@ -245,14 +245,18 @@ except Exception as e:
 
 current_player_session = None
 
-ring_started = alarm_started = vm_started = last_hop_timestamp =  0
+ring_started = alarm_started = vm_started = last_hop_timestamp = last_logged_second = 0
 current_vm = None
 current_logger.info("Initialization complete. Entering main loop.")
 while True:
     try:
         current_timestamp = TimeController.get_current_timestamp()
-        # Log status more frequently to verify loop is alive
-        if current_timestamp % 2 == 0:
+        # The loop runs many times per second; only log once per second so the
+        # log file and the in-memory log cache do not flood.
+        new_second = current_timestamp != last_logged_second
+        if new_second:
+            last_logged_second = current_timestamp
+        if new_second and current_timestamp % 2 == 0:
             current_logger.info(f"STATUS: Time={current_timestamp}, Local={TimeController.get_current_time_str()}")
         
         seconds_from_alarm_started = current_timestamp - alarm_started
@@ -348,7 +352,7 @@ while True:
                                     ring_started = current_timestamp
                             else:
                                 # Periodic check of why it's not ringing
-                                if current_timestamp % 30 == 0:
+                                if new_second and current_timestamp % 30 == 0:
                                     next_lesson = "None"
                                     if schedule_monitor._schedule:
                                         # Find the first upcoming lesson
