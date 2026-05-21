@@ -42,6 +42,10 @@ STREAM_TIMEOUT = 8    # ongoing audio streaming after the header arrived
 #   116 = ETIMEDOUT on the ESP32 (lwIP) build  <-- our hardware
 TIMEOUT_ERRNOS = (11, 110, 116)
 
+# Size of each socket read. Kept small: a 16 KB buffer fails to allocate with
+# MemoryError once the ESP32 heap is fragmented after a ring has played.
+RECV_CHUNK = 4096
+
 
 class SocketStreamWrapper:
     """Wrapper to make a socket behave like a file object for WAV streaming.
@@ -65,8 +69,8 @@ class SocketStreamWrapper:
         # Use existing buffer first
         while len(self.buf) < n:
             try:
-                # Use larger recv buffer (16KB) to reduce socket call overhead
-                chunk = self.sock.recv(16384)
+                # Small reads keep the allocation well within a fragmented heap.
+                chunk = self.sock.recv(RECV_CHUNK)
                 if not chunk:
                     # Connection closed or no more data
                     if len(self.buf) == 0:
