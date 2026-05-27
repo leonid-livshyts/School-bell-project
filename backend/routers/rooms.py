@@ -46,26 +46,36 @@ async def create_room(db: db_dependency, room_obj: RoomObj):
 
 
 @rooms_router.post("/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def update_lesson_by_id(db: db_dependency, room_obj: RoomObj, room_id: int):
-    query = select(Lesson).where(Lesson.id == room_id)
+async def update_room_by_id(db: db_dependency, room_obj: RoomObj, room_id: int):
+    query = select(Room).where(Room.id == room_id)
     result = await db.execute(query)
     room = result.scalar_one_or_none()
     if room is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
 
     room.name = room_obj.name
-    room.start = room_obj.start
-    room.end = room_obj.end
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as ie:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A room with this name already exists",
+        ) from ie
 
 
 @rooms_router.delete("/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_room_by_id(db: db_dependency, room_id: int):
-    query = select(Lesson).where(Lesson.id == room_id)
+    query = select(Room).where(Room.id == room_id)
     result = await db.execute(query)
     room = result.scalar_one_or_none()
     if room is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
-    await db.delete(room)
-    await db.commit()
+    try:
+        await db.delete(room)
+        await db.commit()
+    except IntegrityError as ie:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Room is still referenced by lessons/devices/measures/etc.",
+        ) from ie
