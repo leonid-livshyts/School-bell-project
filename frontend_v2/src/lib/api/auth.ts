@@ -1,4 +1,5 @@
-import { api, tokenStore } from "./client"
+import { api } from "./client"
+import { setSession } from "../auth/session"
 import type { LoginResponse, RegisterInput } from "../types"
 
 export async function login(username: string, password: string) {
@@ -6,7 +7,7 @@ export async function login(username: string, password: string) {
   body.set("username", username)
   body.set("password", password)
   const res = await api<LoginResponse>("/login", { method: "POST", body })
-  tokenStore.set(res.access_token)
+  setSession({ token: res.access_token, username })
   return res
 }
 
@@ -15,5 +16,5 @@ export async function register(input: RegisterInput) {
 }
 
 export function logout() {
-  tokenStore.clear()
+  setSession(null)
 }

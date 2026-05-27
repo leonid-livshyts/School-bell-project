@@ -1,13 +1,7 @@
 // Single fetch wrapper. Attaches the Bearer token, normalizes errors, and
 // is the only file that talks to fetch() directly.
 
-const TOKEN_KEY = "school_bell_token"
-
-export const tokenStore = {
-  get: () => localStorage.getItem(TOKEN_KEY),
-  set: (t: string) => localStorage.setItem(TOKEN_KEY, t),
-  clear: () => localStorage.removeItem(TOKEN_KEY),
-}
+import { getSession, setSession } from "../auth/session"
 
 export class ApiError extends Error {
   status: number
@@ -38,14 +32,12 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   }
 
   const headers = new Headers(opts.headers)
-  const token = tokenStore.get()
-  if (token) headers.set("Authorization", `Bearer ${token}`)
+  const session = getSession()
+  if (session) headers.set("Authorization", `Bearer ${session.token}`)
 
   let body: BodyInit | undefined
   if (opts.body instanceof FormData || opts.body instanceof URLSearchParams) {
     body = opts.body
-    // For URLSearchParams, browsers set the content-type automatically; do
-    // the same explicitly so the server reads it as a form.
     if (opts.body instanceof URLSearchParams && !headers.has("Content-Type")) {
       headers.set("Content-Type", "application/x-www-form-urlencoded")
     }
@@ -62,7 +54,9 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   })
 
   if (res.status === 401) {
-    tokenStore.clear()
+    // Token rejected -- drop the session. ProtectedRoute redirects on the
+    // next render.
+    setSession(null)
   }
 
   if (!res.ok) {
