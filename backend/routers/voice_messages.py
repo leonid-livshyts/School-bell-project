@@ -2,11 +2,12 @@ from typing import Optional, Annotated, Union
 from datetime import datetime
 from sqlalchemy.future import select
 from sqlalchemy.exc import IntegrityError
-from fastapi import HTTPException, status, APIRouter, File, UploadFile, Form
+from fastapi import HTTPException, status, APIRouter, File, UploadFile, Form, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from models import VoiceMessage
 from routers.db_tools import db_dependency
+from routers.oauth_tools import oauth2
 from config import settings_dependency
 
 
@@ -17,7 +18,8 @@ class VoiceMessageObj(BaseModel):
 
 voice_messages_router = APIRouter(
     prefix="/voice_messages",
-    tags=["voice_messages"]
+    tags=["voice_messages"],
+    dependencies=[Depends(oauth2)],
 )
 
 

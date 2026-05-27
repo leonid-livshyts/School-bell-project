@@ -2,10 +2,11 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
-from fastapi import HTTPException, status, APIRouter
+from fastapi import HTTPException, status, APIRouter, Depends
 from pydantic import BaseModel, field_validator
 from models import Lesson
 from routers.db_tools import db_dependency
+from routers.oauth_tools import oauth2
 
 
 # The school's local timezone, used to interpret lesson times sent without one.
@@ -35,7 +36,8 @@ class LessonObj(BaseModel):
 
 lessons_router = APIRouter(
     prefix="/lessons",
-    tags=["lessons"]
+    tags=["lessons"],
+    dependencies=[Depends(oauth2)],
 )
 
 

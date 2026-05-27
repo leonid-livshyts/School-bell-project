@@ -1,8 +1,9 @@
 from sqlalchemy.future import select
-from fastapi import HTTPException, status, APIRouter
+from fastapi import HTTPException, status, APIRouter, Depends
 from pydantic import BaseModel
 from models import Alarm, Room
 from routers.db_tools import db_dependency
+from routers.oauth_tools import oauth2
 
 
 class AlarmObj(BaseModel):
@@ -11,7 +12,8 @@ class AlarmObj(BaseModel):
 
 alarms_router = APIRouter(
     prefix="/alarms",
-    tags=["alarms"]
+    tags=["alarms"],
+    dependencies=[Depends(oauth2)],
 )
 
 

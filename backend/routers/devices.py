@@ -1,9 +1,10 @@
-from fastapi import HTTPException, status, APIRouter
+from fastapi import HTTPException, status, APIRouter, Depends
 from models import Device
 from pydantic import BaseModel
 from sqlalchemy.future import select
 from sqlalchemy.exc import IntegrityError
 from routers.db_tools import db_dependency
+from routers.oauth_tools import oauth2
 from datetime import datetime
 
 class DeviceObj(BaseModel):
@@ -14,7 +15,8 @@ class DeviceObj(BaseModel):
 
 devices_router = APIRouter(
     prefix="/{room_id}/devices",
-    tags=["rooms", "devices"]
+    tags=["rooms", "devices"],
+    dependencies=[Depends(oauth2)],
 )
 
 @devices_router.get("/", status_code=status.HTTP_200_OK)
