@@ -5,18 +5,16 @@ import { AppShell } from "@/components/AppShell"
 import Login from "@/routes/Login"
 import Register from "@/routes/Register"
 import NotFound from "@/routes/NotFound"
-import {
-  Dashboard,
-  RoomsPage,
-  LessonsPage,
-  DevicesIndex,
-  DevicesByRoom,
-  MeasuresIndex,
-  MeasuresByRoom,
-  RingtonesPage,
-  VoiceMessagesPage,
-  AlarmsPage,
-} from "@/routes/placeholders"
+import Dashboard from "@/routes/Dashboard"
+import RoomsPage from "@/routes/Rooms"
+import LessonsPage from "@/routes/Lessons"
+import DevicesIndex from "@/routes/DevicesIndex"
+import DevicesByRoom from "@/routes/DevicesByRoom"
+import MeasuresIndex from "@/routes/MeasuresIndex"
+import MeasuresByRoom from "@/routes/MeasuresByRoom"
+import RingtonesPage from "@/routes/Ringtones"
+import VoiceMessagesPage from "@/routes/VoiceMessages"
+import AlarmsPage from "@/routes/Alarms"
 
 const router = createBrowserRouter([
   { path: "/login", element: <Login /> },
