@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from database import engine
 from models import Base
@@ -22,6 +23,21 @@ async def lifespan(application: FastAPI):
 settings = get_settings()
 settings.init_fs()
 app = FastAPI(debug=True, lifespan=lifespan, title=settings.app_name)
+
+# CORS: allow the Vite dev server, Coder wildcard subdomains, and any https
+# origin (covers the prod deploy domain). allow_credentials=True is required
+# so the Authorization: Bearer header is allowed cross-origin.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=(
+        r"^http://localhost:5173$"
+        r"|^https://[a-zA-Z0-9-]+--main--[a-zA-Z0-9-]+--[a-zA-Z0-9-]+\.coder\.brobots\.org\.ua$"
+        r"|^https://[a-zA-Z0-9.-]+$"
+    ),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 app.include_router(authentication.auth_router)
