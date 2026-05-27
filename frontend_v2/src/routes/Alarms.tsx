@@ -15,8 +15,10 @@ import { roomsApi } from "@/lib/api/rooms"
 import { ApiError } from "@/lib/api/client"
 import { formatRelative } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 
 export default function AlarmsPage() {
+  useDocumentTitle("Alarms")
   const qc = useQueryClient()
   const rooms = useQuery({ queryKey: ["rooms"], queryFn: roomsApi.list })
   const alarms = useQuery({ queryKey: ["alarms"], queryFn: alarmsApi.list })

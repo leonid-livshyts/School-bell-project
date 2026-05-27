@@ -9,8 +9,10 @@ import { EmptyState } from "@/components/EmptyState"
 import { roomsApi } from "@/lib/api/rooms"
 import { measuresApi } from "@/lib/api/measures"
 import { formatRelative } from "@/lib/format"
+import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 
 export default function MeasuresIndex() {
+  useDocumentTitle("Measures")
   const rooms = useQuery({ queryKey: ["rooms"], queryFn: roomsApi.list })
   const roomList = rooms.data ?? []
 

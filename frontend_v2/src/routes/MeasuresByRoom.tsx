@@ -50,6 +50,7 @@ import { measuresApi } from "@/lib/api/measures"
 import { roomsApi } from "@/lib/api/rooms"
 import { ApiError } from "@/lib/api/client"
 import { formatDateTime } from "@/lib/format"
+import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import type { Measure } from "@/lib/types"
 
 const RANGES = {
@@ -79,6 +80,7 @@ const SERIES: Series[] = [
 export default function MeasuresByRoom() {
   const { roomId: roomIdParam } = useParams()
   const roomId = Number(roomIdParam)
+  useDocumentTitle("Measures")
   const qc = useQueryClient()
   const [range, setRange] = useState<RangeKey>("day")
 

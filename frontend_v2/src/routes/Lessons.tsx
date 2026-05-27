@@ -57,6 +57,7 @@ import {
   fromDateTimeLocal,
   toDateTimeLocal,
 } from "@/lib/format"
+import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import type { Lesson } from "@/lib/types"
 
 const schema = z.object({
@@ -68,6 +69,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 export default function LessonsPage() {
+  useDocumentTitle("Lessons")
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Lesson | null>(null)

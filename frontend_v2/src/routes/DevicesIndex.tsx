@@ -9,8 +9,10 @@ import { PageHeader } from "@/components/PageHeader"
 import { EmptyState } from "@/components/EmptyState"
 import { roomsApi } from "@/lib/api/rooms"
 import { devicesApi } from "@/lib/api/devices"
+import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 
 export default function DevicesIndex() {
+  useDocumentTitle("Devices")
   const rooms = useQuery({ queryKey: ["rooms"], queryFn: roomsApi.list })
   const roomList = rooms.data ?? []
 

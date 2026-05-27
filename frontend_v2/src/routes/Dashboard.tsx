@@ -20,6 +20,7 @@ import { ringtonesApi } from "@/lib/api/ringtones"
 import { voiceMessagesApi } from "@/lib/api/voice_messages"
 import { useSession } from "@/lib/auth/use-session"
 import { formatDateTime } from "@/lib/format"
+import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 
 function StatCard({
   title,
@@ -75,6 +76,7 @@ function isToday(iso: string) {
 }
 
 export default function Dashboard() {
+  useDocumentTitle("Dashboard")
   const session = useSession()
   const rooms = useQuery({ queryKey: ["rooms"], queryFn: roomsApi.list })
   const lessons = useQuery({ queryKey: ["lessons"], queryFn: lessonsApi.list })

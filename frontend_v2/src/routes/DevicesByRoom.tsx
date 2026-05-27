@@ -57,6 +57,7 @@ import { devicesApi } from "@/lib/api/devices"
 import { roomsApi } from "@/lib/api/rooms"
 import { ApiError } from "@/lib/api/client"
 import { formatDateTime, toDateTimeLocal, fromDateTimeLocal } from "@/lib/format"
+import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 
 const schema = z.object({
   key: z.string().min(8, "At least 8 chars"),
@@ -79,6 +80,7 @@ function maskKey(key: string) {
 export default function DevicesByRoom() {
   const { roomId: roomIdParam } = useParams()
   const roomId = Number(roomIdParam)
+  useDocumentTitle("Devices")
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const [revealed, setRevealed] = useState<Record<number, boolean>>({})

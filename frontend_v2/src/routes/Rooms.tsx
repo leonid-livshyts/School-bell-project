@@ -45,6 +45,7 @@ import { ConfirmDelete } from "@/components/ConfirmDelete"
 import { roomsApi } from "@/lib/api/rooms"
 import { ApiError } from "@/lib/api/client"
 import { formatDateTime } from "@/lib/format"
+import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import type { Room } from "@/lib/types"
 
 const schema = z.object({
@@ -53,6 +54,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 export default function RoomsPage() {
+  useDocumentTitle("Rooms")
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Room | null>(null)

@@ -1,7 +1,9 @@
 import { AudioLibraryPage } from "@/components/AudioLibraryPage"
 import { voiceMessagesApi } from "@/lib/api/voice_messages"
+import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 
 export default function VoiceMessagesPage() {
+  useDocumentTitle("Voice messages")
   return (
     <AudioLibraryPage
       title="Voice messages"

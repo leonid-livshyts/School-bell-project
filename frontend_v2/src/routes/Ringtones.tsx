@@ -1,7 +1,9 @@
 import { AudioLibraryPage } from "@/components/AudioLibraryPage"
 import { ringtonesApi } from "@/lib/api/ringtones"
+import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 
 export default function RingtonesPage() {
+  useDocumentTitle("Ringtones")
   return (
     <AudioLibraryPage
       title="Ringtones"
