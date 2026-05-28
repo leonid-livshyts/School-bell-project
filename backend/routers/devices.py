@@ -55,12 +55,12 @@ async def update_device_by_id(db: db_dependency, device_obj: DeviceObj, room_id:
 
     device.key = device_obj.key
     device.version = device_obj.version
-    device.instaled_date = device_obj.instaled_date
+    device.installed_date = device_obj.installed_date
 
     try:
         await db.commit()
     except IntegrityError as ie:
-        if "UNIQUE" is str(ie):
+        if "UNIQUE" in str(ie):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="There is a room with such name")
         else:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No such room")
