@@ -23,8 +23,17 @@ export interface ApiOptions {
 
 const BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? ""
 
+if (!BASE) {
+  console.warn(
+    "[api] VITE_API_URL is not set. Create frontend/.env with " +
+      "VITE_API_URL=http://localhost:8080 and restart the dev server.",
+  )
+}
+
 export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
-  const url = new URL(BASE + path)
+  // Resolve against the current origin so a missing/relative BASE never makes
+  // new URL() throw -- it would otherwise surface as a cryptic generic error.
+  const url = new URL(path, BASE || window.location.origin)
   if (opts.query) {
     for (const [k, v] of Object.entries(opts.query)) {
       if (v !== undefined) url.searchParams.set(k, String(v))
@@ -46,12 +55,24 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
     body = JSON.stringify(opts.body)
   }
 
-  const res = await fetch(url, {
-    method: opts.method ?? "GET",
-    headers,
-    body,
-    signal: opts.signal,
-  })
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: opts.method ?? "GET",
+      headers,
+      body,
+      signal: opts.signal,
+    })
+  } catch (e) {
+    // fetch() rejects only on network-level failure (server down, CORS
+    // preflight blocked, DNS, mixed content). Turn it into an ApiError with a
+    // message the UI can show, and log the original for debugging.
+    console.error("[api] network error for", url.toString(), e)
+    throw new ApiError(
+      0,
+      `Cannot reach the API at ${url.origin}. Is the backend running and is VITE_API_URL correct?`,
+    )
+  }
 
   if (res.status === 401) {
     // Token rejected -- drop the session. ProtectedRoute redirects on the
