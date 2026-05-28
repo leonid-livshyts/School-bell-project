@@ -49,6 +49,7 @@ export default function Login() {
       await login(values.username, values.password)
       navigate(from, { replace: true })
     } catch (err) {
+      console.error("[login] failed:", err)
       if (err instanceof ApiError) {
         toast.error(err.message)
       } else {

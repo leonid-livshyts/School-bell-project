@@ -61,6 +61,7 @@ export default function Register() {
       toast.success("Welcome aboard")
       navigate("/", { replace: true })
     } catch (err) {
+      console.error("[register] failed:", err)
       if (err instanceof ApiError) {
         toast.error(err.message)
       } else {

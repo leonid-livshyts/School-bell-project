@@ -91,6 +91,10 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
       detail && typeof detail === "object" && "detail" in detail
         ? String((detail as { detail: unknown }).detail)
         : res.statusText || "Request failed"
+    console.error(
+      `[api] ${opts.method ?? "GET"} ${url.pathname} -> ${res.status}: ${message}`,
+      detail ?? "",
+    )
     throw new ApiError(res.status, message, detail)
   }
 
