@@ -1,0 +1,20 @@
+; I2S Audio Output Program
+; Bit-bangs I2S protocol via PIO
+; Side-set bits: Bit 0 = BCLK, Bit 1 = LRC (Left/Right Clock)
+
+.program i2s_output
+.side_set 2
+
+; Setup for stereo: 16 bits per channel
+public entry_point:
+    set x, 14           side 0b00   ; 16 bits per channel (minus 1 for loop, minus 1 for MSB)
+left_loop:
+    out pins, 1         side 0b01   ; Shift out 1 bit, BCLK high, Left channel (LRC low)
+    jmp x-- left_loop   side 0b00   ; BCLK low
+    out pins, 1         side 0b01   ; Shift out last bit of Left channel
+    set x, 14           side 0b10   ; Switch to Right channel (LRC high)
+right_loop:
+    out pins, 1         side 0b11   ; Shift out 1 bit, BCLK high, Right channel (LRC high)
+    jmp x-- right_loop  side 0b10   ; BCLK low
+    out pins, 1         side 0b11   ; Shift out last bit of Right channel
+    jmp entry_point     side 0b00   ; Loop back to output next frame
