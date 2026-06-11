@@ -205,11 +205,12 @@ class PlayerController:
         print("stopped")
 
     def __init__(self, socket_host, socket_port,
-                 spi_id=1, sck_pin=32, mosi_pin=33, miso_pin=25,
+                 spi_id=2, sck_pin=18, mosi_pin=23, miso_pin=19,
                  cs_pin=26, ready_pin=35, stop_pin=27,
                  baudrate=4_000_000, on_finish=play_stop, logger=None):
-        # SPI master to the Pico. miso is unused (one-way) but required by the
-        # constructor on the ESP32.
+        # SPI master to the Pico. Uses the ESP32 VSPI peripheral (id=2) on its
+        # native pins (SCK=18, MOSI=23, MISO=19) for direct IO-MUX routing.
+        # miso is unused (one-way) but required by the constructor.
         self.spi = SPI(spi_id, baudrate=baudrate, polarity=0, phase=0,
                        sck=Pin(sck_pin), mosi=Pin(mosi_pin), miso=Pin(miso_pin))
         self.cs = Pin(cs_pin, Pin.OUT, value=1)          # active low
