@@ -34,7 +34,7 @@ def normalize_media_request(full_string):
     media_type = full_string[0]
     raw_name = full_string[1:]
     media_name = unquote(raw_name).strip()
-    if media_name.lower().endswith('.wav'):
+    if media_name.lower().endswith('.mp3'):
         media_name = media_name[:-4]
     if not media_name:
         raise ValueError("Empty media name after decoding")
@@ -77,7 +77,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         elif media_type.startswith('S'):
             search_path = sounds_path
 
-        filename = (search_path / (media_name + '.wav')).resolve()
+        filename = (search_path / (media_name + '.mp3')).resolve()
 
         if not filename.is_relative_to(search_path):
             print(f"[!] Security violation: requested file outside search path: {filename}")

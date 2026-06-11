@@ -39,7 +39,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         full_string = name_bytes.decode("utf-8")
         media_type = full_string[0]
         media_name = unquote(full_string[1:]).strip()
-        if media_name.lower().endswith('.wav'):
+        if media_name.lower().endswith('.mp3'):
             media_name = media_name[:-4]
 
         print(f"[*] Media type: {media_type}, Requested name: {full_string[1:]}, Normalized name: {media_name}")
@@ -52,7 +52,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             search_path = sounds_path
 
         if isinstance(search_path, Path):
-            filename = (search_path / (media_name + ".wav")).resolve()
+            filename = (search_path / (media_name + ".mp3")).resolve()
             if filename.is_relative_to(search_path) and filename.is_file():
                 # Offload blocking file I/O to a thread pool
                 loop = asyncio.get_running_loop()
