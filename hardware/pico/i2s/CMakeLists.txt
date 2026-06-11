@@ -35,7 +35,10 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(i2s main.cpp mp3_stubs.c)
+# Helix fixed-point MP3 decoder sources (vendored under helix/)
+file(GLOB HELIX_SRCS ${CMAKE_CURRENT_LIST_DIR}/helix/*.c)
+
+add_executable(i2s main.cpp ${HELIX_SRCS})
 
 pico_set_program_name(i2s "i2s")
 pico_set_program_version(i2s "0.1")
@@ -54,6 +57,7 @@ target_link_libraries(i2s
 # Add the standard include files to the build
 target_include_directories(i2s PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/helix
 )
 
 # Add any user requested libraries
