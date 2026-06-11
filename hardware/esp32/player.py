@@ -1,8 +1,9 @@
-from wavplayer import WavPlayer
 import socket
 import time
 import gc
-from time import sleep
+import _thread
+from machine import Pin, SPI
+
 
 # Always use this manual quote() implementation.
 # We do NOT import urllib.parse.quote: on some MicroPython builds that module
@@ -31,10 +32,10 @@ class PlayerException(Exception):
     pass
 
 
-# Socket timeouts (in seconds) for talking to the WAV streaming server.
+# Socket timeouts (in seconds) for talking to the MP3 streaming server.
 CONNECT_TIMEOUT = 10  # TCP connect step
-HEADER_TIMEOUT = 15   # waiting for the server to find the file and send the WAV header
-STREAM_TIMEOUT = 8    # ongoing audio streaming after the header arrived
+HEADER_TIMEOUT = 15   # waiting for the server to find the file and start sending
+STREAM_TIMEOUT = 8    # ongoing streaming after the first bytes arrived
 
 # recv() timeouts surface as OSError. The errno depends on the MicroPython port:
 #   11  = EAGAIN
@@ -42,302 +43,182 @@ STREAM_TIMEOUT = 8    # ongoing audio streaming after the header arrived
 #   116 = ETIMEDOUT on the ESP32 (lwIP) build  <-- our hardware
 TIMEOUT_ERRNOS = (11, 110, 116)
 
-# Size of each socket read. Kept small: a 16 KB buffer fails to allocate with
-# MemoryError once the ESP32 heap is fragmented after a ring has played.
-RECV_CHUNK = 4096
-
-
-class SocketStreamWrapper:
-    """Wrapper to make a socket behave like a file object for WAV streaming.
-    
-    Implements buffered reading to ensure read(n) returns exactly n bytes
-    or raises an error, matching file object behavior.
-    """
-    def __init__(self, sock, logger=None):
-        self.sock = sock
-        self.buf = b""
-        self.closed = False
-        self.logger = logger
-        self.position = 0
-        self.bytes_received = 0
-        
-    def read(self, n):
-        """Read exactly n bytes from socket, buffering as needed."""
-        if self.closed:
-            raise OSError("Socket is closed")
-        
-        # Use existing buffer first
-        while len(self.buf) < n:
-            try:
-                # Small reads keep the allocation well within a fragmented heap.
-                chunk = self.sock.recv(RECV_CHUNK)
-                if not chunk:
-                    # Connection closed or no more data
-                    if len(self.buf) == 0:
-                        if self.bytes_received == 0 and self.logger:
-                            self.logger("ERROR: Server sent no data - file may not exist on server")
-                        return b""
-                    # Return what we have
-                    result = self.buf[:n]
-                    self.buf = self.buf[n:]
-                    self.position += len(result)
-                    self.bytes_received += len(result)
-                    if self.logger:
-                        self.logger(f"DEBUG: EOF reached at {self.bytes_received} bytes total, returning {len(result)} bytes")
-                    return result
-                self.bytes_received += len(chunk)
-                self.buf += chunk
-                if self.logger and self.bytes_received % 65536 == 0:
-                    self.logger(f"DEBUG: Socket read progress: {self.bytes_received} bytes")
-            except OSError as e:
-                # MicroPython has no socket.timeout class; recv() timeouts surface
-                # as OSError. See TIMEOUT_ERRNOS above. Anything else is a real
-                # socket failure and should propagate.
-                errno = e.args[0] if e.args else None
-                if errno not in TIMEOUT_ERRNOS:
-                    if self.logger:
-                        self.logger(f"ERROR: Fatal socket error (errno {errno}): {e}")
-                    raise
-                if self.logger:
-                    self.logger(f"DEBUG: recv() timed out (errno {errno}), buffered={len(self.buf)}, total received={self.bytes_received}")
-                # On timeout, return what we have buffered
-                # This is important during I2S playback to avoid blocking the callback
-                if len(self.buf) > 0:
-                    result = self.buf[:n]
-                    self.buf = self.buf[n:]
-                    self.position += len(result)
-                    self.bytes_received += len(result)
-                    if self.logger:
-                        self.logger(f"DEBUG: Socket timeout, returning {len(result)} bytes from buffer")
-                    return result
-                # No buffered data and timeout - this is only an error on first read
-                if self.bytes_received == 0:
-                    if self.logger:
-                        self.logger(f"ERROR: Socket timeout on first read - no data received from server")
-                    raise
-                # Otherwise return empty (will signal EOF to WAV player)
-                if self.logger:
-                    self.logger(f"DEBUG: Socket timeout at {self.bytes_received} bytes, returning empty (EOF)")
-                return b""
-        
-        # We have enough buffered
-        result = self.buf[:n]
-        self.buf = self.buf[n:]
-        self.position += len(result)
-        self.bytes_received += len(result)
-        return result
-    
-    def readinto(self, b):
-        """Read bytes directly into the provided buffer."""
-        data = self.read(len(b))
-        if not data:
-            return 0
-        b[:len(data)] = data
-        return len(data)
-    
-    def seek(self, pos, whence=0):
-        """Forward-only seek support for socket streams."""
-        if whence != 0:
-            raise OSError("seek only supports absolute positions")
-        if pos < self.position:
-            raise OSError("cannot seek backwards on socket stream")
-        if pos == self.position:
-            return self.position
-        to_skip = pos - self.position
-        while to_skip > 0:
-            chunk = self.read(min(to_skip, 4096))
-            if not chunk:
-                raise OSError("cannot seek past end of socket stream")
-            to_skip -= len(chunk)
-        return self.position
-    
-    def close(self):
-        """Close the socket."""
-        if not self.closed:
-            try:
-                self.sock.close()
-            except:
-                pass
-            self.closed = True
-    
-    def __enter__(self):
-        return self
-    
-    def __exit__(self, *args):
-        self.close()
+# Bytes per SPI transfer. Must match the Pico's spi_read_blocking() chunk size.
+CHUNK = 512
 
 
 class PlayerSession:
+    """One playback. Streams MP3 bytes from the server straight to the Pico
+    over SPI; the Pico decodes and drives the I2S DAC.
+
+    Playback runs in a background thread so the caller (the main loop) keeps
+    running and can stop()/interrupt it at any time.
+    """
+
     def __init__(self, player, socket_host, socket_port, logger=None):
         self.player = player
         self.socket_host = socket_host
         self.socket_port = socket_port
         self.logger = logger
-        self.stream = None
-        
-    def play(self, sound):
-        """Play a sound by requesting it from the socket server.
-        
-        Args:
-            sound: Sound identifier string (e.g., "R1234_my_ringtone", "S alarm_start")
-                   If the sound name includes .wav extension, it will be stripped.
-                   Special characters will be URL-encoded.
-            
-        Raises:
-            PlayerException: If socket connection fails or sound cannot be played
-        """
-        sock = None
-        self.stream = None
-        # Free heap before allocating socket buffers and the I2S DMA buffer.
-        # A low/fragmented heap makes the I2S init fail with ENOMEM.
-        gc.collect()
+        self.sock = None
+        self._first = None
+        # Idle to begin with: _running False so stop() is a safe no-op.
+        self._stop = True
+        self._running = False
+
+    def _log(self, msg):
         if self.logger:
-            self.logger(f"DEBUG: Free heap before playback: {gc.mem_free()} bytes")
+            self.logger(msg)
+
+    def _send_chunk(self, chunk):
+        """Send exactly CHUNK bytes to the Pico, gated by its READY line."""
+        if len(chunk) < CHUNK:
+            # Pad the final short chunk. Trailing zeros are not a valid MP3
+            # frame sync, so the Pico just ignores them.
+            chunk = bytes(chunk) + b'\x00' * (CHUNK - len(chunk))
+
+        ready = self.player.ready
+        # Wait for back-pressure to clear (Pico ring buffer has room).
+        while not ready.value():
+            if self._stop:
+                return
+            time.sleep_ms(1)
+
+        self.player.cs.value(0)
+        self.player.spi.write(chunk)
+        self.player.cs.value(1)
+
+    def _pump(self):
+        """Background loop: read MP3 bytes from the socket, forward to Pico."""
         try:
-            if self.logger:
-                self.logger(f"DEBUG: Connecting to streamer {self.socket_host}:{self.socket_port}")
+            if self._first:
+                self._send_chunk(self._first)
+                self._first = None
+
+            while not self._stop:
+                try:
+                    chunk = self.sock.recv(CHUNK)
+                except OSError as e:
+                    errno = e.args[0] if e.args else None
+                    if errno in TIMEOUT_ERRNOS:
+                        continue  # re-check _stop and retry
+                    raise
+                if not chunk:
+                    break  # server closed the connection -> end of file
+                self._send_chunk(chunk)
+        except Exception as e:
+            self._log("ERROR: playback pump failed: %s" % e)
+        finally:
+            try:
+                self.sock.close()
+            except Exception:
+                pass
+            self._running = False
+
+    def play(self, sound):
+        """Request a sound from the server and start streaming it to the Pico.
+
+        Returns immediately; playback continues in the background until the
+        file ends or stop() is called.
+        """
+        # Never run two playbacks at once (the ESP32 has a single worker core).
+        self.stop()
+
+        gc.collect()
+        sock = None
+        try:
             sock = socket.socket()
-            # Timeout for the TCP connect step.
             sock.settimeout(CONNECT_TIMEOUT)
             sock.connect((self.socket_host, self.socket_port))
-            if self.logger:
-                self.logger("DEBUG: Connected to streamer")
-            
-            # Disable Nagle's algorithm to reduce TCP buffering delays if supported
+
             if hasattr(socket, "IPPROTO_TCP") and hasattr(socket, "TCP_NODELAY"):
                 try:
                     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                except Exception as e:
-                    if self.logger:
-                        self.logger(f"DEBUG: Could not set TCP_NODELAY: {e}")
-            # Increase receive buffer size to handle streaming data better if supported
-            if hasattr(socket, "SOL_SOCKET") and hasattr(socket, "SO_RCVBUF"):
-                try:
-                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 16384)
-                except Exception as e:
-                    if self.logger:
-                        self.logger(f"DEBUG: Could not set SO_RCVBUF: {e}")
+                except Exception:
+                    pass
 
-            
-            # The streamer server needs time to locate the file on disk and
-            # start sending. 2s was far too short and made ringtones fail with
-            # ETIMEDOUT, so give the header read a generous timeout.
+            # Request protocol: 1 byte length + URL-encoded "<type><name>".
+            encoded = quote(sound, safe='_-.')
+            req = encoded.encode()
+            if len(req) > 255:
+                raise PlayerException("Sound name too long: %d bytes (max 255)" % len(req))
+
             sock.settimeout(HEADER_TIMEOUT)
-            
-            # Remove .wav extension if present (streamer server adds it)
-            sound_name = sound
-            
-            # URL-encode the sound name to handle special characters safely
-            # Keep alphanumerics, underscore, hyphen, and dot unencoded
-            encoded_sound_name = quote(sound_name, safe='_-.')
-            
-            # Send sound request: 1 byte length + sound name
-            sound_bytes = encoded_sound_name.encode()
-            if len(sound_bytes) > 255:
-                raise PlayerException(f"Sound name too long: {len(sound_bytes)} bytes (max 255)")
-            
-            if self.logger:
-                self.logger(f"DEBUG: Requesting sound: '{encoded_sound_name}' ({len(sound_bytes)} bytes)")
-            
-            sock.sendall(len(sound_bytes).to_bytes(1, "big") + sound_bytes)
+            sock.sendall(bytes([len(req)]) + req)
 
-            # Synchronous buffered socket wrapper — simpler than a background
-            # fetch thread, and avoids ring-buffer race conditions / zombie
-            # threads that exhaust ESP32 heap on repeated failures.
-            self.stream = SocketStreamWrapper(sock, logger=self.logger)
+            # Read the first bytes synchronously so file-not-found / no-data
+            # errors are surfaced to the caller instead of dying in the thread.
+            first = sock.recv(CHUNK)
+            if not first:
+                raise PlayerException("No data from server for '%s' (missing file?)" % sound)
 
-            # Peek at first bytes to verify we got valid WAV data.
-            first_bytes = self.stream.read(4)
-
-            if first_bytes == b"":
-                raise PlayerException(f"No data from server for '{sound}' - check if server is running and file exists")
-            if first_bytes != b"RIFF":
-                raise PlayerException(f"Invalid WAV file from server for '{sound}' - expected RIFF, got {first_bytes!r}")
-
-            if self.logger:
-                self.logger(f"DEBUG: Got valid WAV header for '{sound}', streaming audio...")
-
-            # Header arrived; use a shorter timeout for the streaming phase so a
-            # stalled connection does not block the I2S callback indefinitely.
             sock.settimeout(STREAM_TIMEOUT)
+            self.sock = sock
+            self._first = first
+            self._stop = False
+            self._running = True
+            _thread.start_new_thread(self._pump, ())
+            self._log("DEBUG: streaming '%s' to Pico" % sound)
 
-            # Prepend the peeked bytes so the WAV player sees the full header.
-            # Plain concat (not assignment) is required: read(4) already consumed
-            # bytes from self.buf, and any leftover from that recv() must be kept.
-            self.stream.buf = first_bytes + self.stream.buf
-            
-            # Reclaim the transient buffers used to read the header so the I2S
-            # DMA allocation inside the WAV player has the most heap available.
-            gc.collect()
-            if self.logger:
-                self.logger(f"DEBUG: Free heap before I2S init: {gc.mem_free()} bytes")
-
-            # Pass wrapped socket to WAV player
-            self.player.play(wav_opened_file=self.stream, loop=False)
-            
-            if self.logger:
-                self.logger(f"DEBUG: Successfully played sound: '{sound}'")
-            
         except PlayerException:
-            if self.stream is not None:
-                self.stream.close()
-            elif sock is not None:
+            if sock is not None:
                 try:
                     sock.close()
                 except Exception:
                     pass
             raise
-        except OSError as e:
-            if self.stream is not None:
-                self.stream.close()
-            elif sock is not None:
-                try:
-                    sock.close()
-                except Exception:
-                    pass
-            errno = e.args[0] if e.args else None
-            if self.logger:
-                self.logger(f"ERROR: Socket error (errno {errno}) while playing '{sound}': {e}")
-            raise PlayerException(f"Socket error while playing '{sound}' (errno {errno}): {e}")
-        except ValueError as e:
-            if self.stream is not None:
-                self.stream.close()
-            elif sock is not None:
-                try:
-                    sock.close()
-                except Exception:
-                    pass
-            raise PlayerException(f"WAV format error while playing '{sound}': {e}")
         except Exception as e:
-            if self.stream is not None:
-                self.stream.close()
-            elif sock is not None:
+            if sock is not None:
                 try:
                     sock.close()
                 except Exception:
                     pass
-            # Provide more context in the error message to help debug "Error code: 82"
-            error_msg = f"Cannot play this sound. Error: {type(e).__name__}: {e}"
-            if self.logger:
-                self.logger(f"ERROR: {error_msg}")
-            raise PlayerException(error_msg)
+            raise PlayerException("Cannot play '%s': %s: %s" % (sound, type(e).__name__, e))
 
     def stop(self):
-        self.player.stop()
-        if self.stream is not None:
-            self.stream.close()
-            self.stream = None
+        """Stop playback: signal the worker, flush the Pico, close the socket."""
+        if not self._running:
+            return
+        self._stop = True
+
+        # Unblock a recv() that may be waiting for data.
+        try:
+            self.sock.close()
+        except Exception:
+            pass
+
+        # Pulse the STOP line so the Pico drops audio already buffered on its
+        # side and goes silent immediately.
+        self.player.stop_pin.value(1)
+        time.sleep_ms(10)
+        self.player.stop_pin.value(0)
+
+        # Give the worker a moment to exit before the next playback starts.
+        deadline = time.ticks_add(time.ticks_ms(), 300)
+        while self._running and time.ticks_diff(deadline, time.ticks_ms()) > 0:
+            time.sleep_ms(2)
+
 
 class PlayerController:
     @staticmethod
     def play_stop():
         print("stopped")
-    
-    def __init__(self, socket_host, socket_port, sck_pin=32, ws_pin=25, sd_pin=33, on_finish=play_stop, logger=None):
-        self.player = WavPlayer(id=0, sck_pin=sck_pin, ws_pin=ws_pin, sd_pin=sd_pin, ibuf=2048, on_finish=on_finish)
+
+    def __init__(self, socket_host, socket_port,
+                 spi_id=1, sck_pin=32, mosi_pin=33, miso_pin=25,
+                 cs_pin=26, ready_pin=35, stop_pin=27,
+                 baudrate=4_000_000, on_finish=play_stop, logger=None):
+        # SPI master to the Pico. miso is unused (one-way) but required by the
+        # constructor on the ESP32.
+        self.spi = SPI(spi_id, baudrate=baudrate, polarity=0, phase=0,
+                       sck=Pin(sck_pin), mosi=Pin(mosi_pin), miso=Pin(miso_pin))
+        self.cs = Pin(cs_pin, Pin.OUT, value=1)          # active low
+        self.ready = Pin(ready_pin, Pin.IN)              # high = Pico has room
+        self.stop_pin = Pin(stop_pin, Pin.OUT, value=0)  # high = stop playback
+
         self.socket_host = socket_host
         self.socket_port = socket_port
         self.logger = logger
-        
+
     def get_session(self):
-        return PlayerSession(self.player, self.socket_host, self.socket_port, self.logger)
+        return PlayerSession(self, self.socket_host, self.socket_port, self.logger)
