@@ -36,15 +36,17 @@ class Config:
             config_json = json.load(f)
         
         wifi_settings = config_json.get("wifi_ap", {})
-        server_settings = config_json.get("server", {})
+        current_wifi_name = wifi_settings.get("current_wifi_name")
+        wifi_credentials = wifi_settings.get("register", {})[current_wifi_name]
+        server_settings = config_json.get("servers_register_by_wifi", {})[current_wifi_name]
         refresh_settings = config_json.get("refresh_rates", {})
-        
+
         timing_settings = config_json.get("timing", {})
         durations_settings = config_json.get("durations", {})
-        
+
         Config._config = Config(
-            wifi_settings.get("name"), 
-            wifi_settings.get("password"),
+            wifi_credentials.get("name"),
+            wifi_credentials.get("password"),
             config_json.get("log_folder"),
             server_settings.get("url"),
             config_json.get("secret_key"),

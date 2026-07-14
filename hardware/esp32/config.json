@@ -1,11 +1,26 @@
 {
     "wifi_ap": {
-        "name": "BROBOTS",
-        "password": "HelloBrobo"
+        "current_wifi_name": "D_CH_A",
+        "register": {
+            "brobots": {
+                "name": "BROBOTS",
+                "password": "HelloBrobo"
+            },
+            "D_CH_A": {
+                "name": "Andrii",
+                "password": "02350702"
+            }
+        }
     },
-    "server": {
-        "url": "10.0.60.208:8000/private",
-        "socket": "10.0.60.208:8088"
+    "servers_register_by_wifi": {
+        "brobots": {
+            "url": "10.0.60.208:8000/private",
+            "socket": "10.0.60.208:8088"
+        },
+        "D_CH_A": {
+            "url": "192.168.0.79:8000/private",
+            "socket": "192.168.0.79:8088"
+        } 
     },
     "refresh_rates": {
         "sensor": 10000,
