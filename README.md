@@ -1,4 +1,4 @@
-# School Bell
+# School Bell -currently_in_development-
 
 A modern school bell system with local control: ring schedules, custom melodies,
 voice announcements, and classroom environment monitoring.
