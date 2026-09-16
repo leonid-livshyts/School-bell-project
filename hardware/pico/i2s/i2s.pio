@@ -1,20 +1,29 @@
-; I2S Audio Output Program
-; Bit-bangs I2S protocol via PIO
-; Side-set bits: Bit 0 = BCLK, Bit 1 = LRC (Left/Right Clock)
-
+; I2S Audio Output Program -- standard I2S (Philips) format.
+;
+; Side-set: bit 0 = BCLK, bit 1 = LRC/WS  (WS low = left, WS high = right).
+; Correct I2S timing:
+;   * data changes while BCLK is LOW and is held stable while BCLK is HIGH, so
+;     the DAC samples a settled bit on each rising edge;
+;   * WS transitions one BCLK BEFORE each channel's MSB (the I2S 1-bit delay).
+; 16 bits per channel, 32 bits (one 32-bit FIFO word) per stereo frame, exactly
+; 64 PIO cycles per frame -> sample rate is exactly clk / 64.
+;
+; The FIFO word is (left << 16) | right, shifted MSB-first: left is emitted first
+; while WS is low, right second while WS is high.
 .program i2s_output
 .side_set 2
 
-; Setup for stereo: 16 bits per channel
 public entry_point:
-    set x, 14           side 0b00   ; 16 bits per channel (minus 1 for loop, minus 1 for MSB)
+    set x, 14          side 0b01   ; prime bit counter for the first (left) loop
+.wrap_target
 left_loop:
-    out pins, 1         side 0b01   ; Shift out 1 bit, BCLK high, Left channel (LRC low)
-    jmp x-- left_loop   side 0b00   ; BCLK low
-    out pins, 1         side 0b01   ; Shift out last bit of Left channel
-    set x, 14           side 0b10   ; Switch to Right channel (LRC high)
+    out pins, 1        side 0b00   ; WS=0 (left),  BCLK low : change data
+    jmp x-- left_loop  side 0b01   ; WS=0,         BCLK high: DAC samples
+    out pins, 1        side 0b10   ; last left bit; WS -> 1 (right) one BCLK early
+    set x, 14          side 0b11   ; WS=1,         BCLK high: sample last left bit
 right_loop:
-    out pins, 1         side 0b11   ; Shift out 1 bit, BCLK high, Right channel (LRC high)
-    jmp x-- right_loop  side 0b10   ; BCLK low
-    out pins, 1         side 0b11   ; Shift out last bit of Right channel
-    jmp entry_point     side 0b00   ; Loop back to output next frame
+    out pins, 1        side 0b10   ; WS=1 (right), BCLK low : change data
+    jmp x-- right_loop side 0b11   ; WS=1,         BCLK high: DAC samples
+    out pins, 1        side 0b00   ; last right bit; WS -> 0 (left) one BCLK early
+    set x, 14          side 0b01   ; WS=0,         BCLK high: sample last right bit
+.wrap

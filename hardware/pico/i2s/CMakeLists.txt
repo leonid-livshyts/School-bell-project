@@ -72,3 +72,55 @@ target_link_libraries(i2s
 
 pico_add_extra_outputs(i2s)
 
+# --- Diagnostic-only target: minimal SPI-slave test, unrelated to the real
+# player firmware above. See spi_test.cpp.
+add_executable(spi_test spi_test.cpp)
+pico_set_program_name(spi_test "spi_test")
+pico_set_program_version(spi_test "0.1")
+pico_enable_stdio_uart(spi_test 1)
+pico_enable_stdio_usb(spi_test 1)
+target_link_libraries(spi_test pico_stdlib hardware_spi)
+pico_add_extra_outputs(spi_test)
+
+# --- Diagnostic-only target: minimal serial-only test, no SPI/I2S at all.
+# See serial_test.cpp.
+add_executable(serial_test serial_test.cpp)
+pico_set_program_name(serial_test "serial_test")
+pico_set_program_version(serial_test "0.1")
+pico_enable_stdio_uart(serial_test 1)
+pico_enable_stdio_usb(serial_test 1)
+target_link_libraries(serial_test pico_stdlib)
+pico_add_extra_outputs(serial_test)
+
+# --- Diagnostic-only target: standalone I2S beep. No SPI/MP3 -- drives the
+# PCM5102A directly to isolate the audio-output path. See beep_test.cpp.
+add_executable(beep_test beep_test.cpp)
+pico_set_program_name(beep_test "beep_test")
+pico_set_program_version(beep_test "0.1")
+pico_generate_pio_header(beep_test ${CMAKE_CURRENT_LIST_DIR}/i2s.pio)
+pico_enable_stdio_uart(beep_test 1)
+pico_enable_stdio_usb(beep_test 1)
+target_link_libraries(beep_test pico_stdlib hardware_pio hardware_clocks)
+pico_add_extra_outputs(beep_test)
+
+# --- Diagnostic-only target: raw bus-edge logger. Reads GP16/17/18 as plain
+# GPIO inputs and logs every SCK/MOSI/CS transition during a CS window, with no
+# SPI peripheral involved. See spi_probe.cpp.
+add_executable(spi_probe spi_probe.cpp)
+pico_set_program_name(spi_probe "spi_probe")
+pico_set_program_version(spi_probe "0.1")
+pico_enable_stdio_uart(spi_probe 1)
+pico_enable_stdio_usb(spi_probe 1)
+target_link_libraries(spi_probe pico_stdlib)
+pico_add_extra_outputs(spi_probe)
+
+# --- Diagnostic-only target: raw GPIO-level test, no SPI peripheral. Reads
+# GP16/18/19 as plain inputs. See gpio_level_test.cpp.
+add_executable(gpio_level_test gpio_level_test.cpp)
+pico_set_program_name(gpio_level_test "gpio_level_test")
+pico_set_program_version(gpio_level_test "0.1")
+pico_enable_stdio_uart(gpio_level_test 1)
+pico_enable_stdio_usb(gpio_level_test 1)
+target_link_libraries(gpio_level_test pico_stdlib)
+pico_add_extra_outputs(gpio_level_test)
+

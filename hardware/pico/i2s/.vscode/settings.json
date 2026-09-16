@@ -22,6 +22,8 @@
     "cmake.automaticReconfigure": false,
     "cmake.configureOnOpen": false,
     "cmake.generator": "Ninja",
+    "cmake.setBuildTargetSameAsLaunchTarget": true,
+    "cmake.buildTarget": "serial_test",
     "cmake.cmakePath": "${userHome}/.pico-sdk/cmake/v3.31.5/bin/cmake",
     "C_Cpp.debugShortcut": false,
     "terminal.integrated.env.windows": {

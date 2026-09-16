@@ -10,9 +10,9 @@ ESP32 SPI uses the VSPI peripheral (machine.SPI id=2) on its native pins.
 | Signal               | ESP32 pin | Dir | Pico pin     | Notes                          |
 |----------------------|-----------|-----|--------------|--------------------------------|
 | SPI clock            | GP18      | →   | GP18 (SCK)   | VSPI native SCK                |
-| SPI data (MOSI)      | GP23      | →   | GP19 (RX)    | VSPI native MOSI; MP3 bytes ESP32 → Pico |
-| SPI MISO             | GP19      | ←   | GP16 (TX)    | VSPI native MISO; unused (one-way), wiring optional |
-| Chip select          | GP26      | →   | GP17 (CSn)   | active low; driven manually in code |
+| SPI data (MOSI)      | GP23      | →   | GP16 (RX)    | VSPI native MOSI; MP3 bytes ESP32 → Pico. GP16 is SPI0 RX |
+| SPI MISO             | GP19      | ←   | GP19 (TX)    | VSPI native MISO; unused (one-way), wiring optional. GP19 is SPI0 TX |
+| Chip select          | GP5       | →   | GP17 (CSn)   | active low; driven manually in code |
 | READY (handshake)    | GP35      | ←   | GP20         | Pico high = ring buffer has room |
 | STOP                 | GP27      | →   | GP21         | ESP32 high = flush & go silent |
 | Ground               | GND       | ⇄   | GND          | common ground REQUIRED         |

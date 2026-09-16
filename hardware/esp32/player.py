@@ -71,7 +71,15 @@ class PlayerSession:
             self.logger(msg)
 
     def _send_chunk(self, chunk):
-        """Send exactly CHUNK bytes to the Pico, gated by its READY line."""
+        """Send exactly CHUNK bytes to the Pico, gated by its READY line.
+
+        CS is held LOW for the entire stream by _pump -- we do NOT toggle it per
+        chunk. Per-chunk CS framing is fatally fragile: each 512B window is only
+        ~4ms wide, so any ms-scale stall (GC, USB flow control, a socket recv)
+        landing inside a window corrupts or drops it. With CS continuous, stalls
+        become harmless idle-clock gaps on byte boundaries and the Pico's ring
+        buffer + READY line handle pacing.
+        """
         if len(chunk) < CHUNK:
             # Pad the final short chunk. Trailing zeros are not a valid MP3
             # frame sync, so the Pico just ignores them.
@@ -84,13 +92,19 @@ class PlayerSession:
                 return
             time.sleep_ms(1)
 
-        self.player.cs.value(0)
+        # CS stays low across the whole stream (managed by _pump); only the
+        # write() clocks data. No per-chunk CS toggle.
         self.player.spi.write(chunk)
-        self.player.cs.value(1)
 
     def _pump(self):
-        """Background loop: read MP3 bytes from the socket, forward to Pico."""
+        """Background loop: read MP3 bytes from the socket, forward to Pico.
+
+        CS is asserted once for the whole stream and released at the end -- see
+        _send_chunk for why per-chunk CS toggling was abandoned.
+        """
         try:
+            self.player.cs.value(0)  # hold CS low for the entire stream
+
             if self._first:
                 self._send_chunk(self._first)
                 self._first = None
@@ -109,6 +123,7 @@ class PlayerSession:
         except Exception as e:
             self._log("ERROR: playback pump failed: %s" % e)
         finally:
+            self.player.cs.value(1)  # release CS once the stream ends
             try:
                 self.sock.close()
             except Exception:
@@ -206,12 +221,14 @@ class PlayerController:
 
     def __init__(self, socket_host, socket_port,
                  spi_id=2, sck_pin=18, mosi_pin=23, miso_pin=19,
-                 cs_pin=26, ready_pin=35, stop_pin=27,
-                 baudrate=4_000_000, on_finish=play_stop, logger=None):
+                 cs_pin=5, ready_pin=35, stop_pin=27,
+                 baudrate=1_000_000, on_finish=play_stop, logger=None):
         # SPI master to the Pico. Uses the ESP32 VSPI peripheral (id=2) on its
         # native pins (SCK=18, MOSI=23, MISO=19) for direct IO-MUX routing.
         # miso is unused (one-way) but required by the constructor.
-        self.spi = SPI(spi_id, baudrate=baudrate, polarity=0, phase=0,
+        # TEST: mode 3 (polarity=1, phase=1) to match the proven main.cpp
+        # control run. (Mode is being isolated -- may revert to 0 later.)
+        self.spi = SPI(spi_id, baudrate=baudrate, polarity=1, phase=1,
                        sck=Pin(sck_pin), mosi=Pin(mosi_pin), miso=Pin(miso_pin))
         self.cs = Pin(cs_pin, Pin.OUT, value=1)          # active low
         self.ready = Pin(ready_pin, Pin.IN)              # high = Pico has room
