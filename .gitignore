@@ -1,0 +1,9 @@
+/.great_cto
+/.omc
+/.vscode
+.great_cto/
+shared/
+__pycache__/
+*.pyc
+kicad/.history/
+kicad/~*.lck
